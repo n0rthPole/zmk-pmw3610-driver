@@ -675,7 +675,7 @@ static int pmw3610_report_data(const struct device *dev) {
     }
 
 #if AUTOMOUSE_LAYER > 0
-    if (input_mode == MOVE && (abs(x)+abs(y) > 0.6) &&
+    if (input_mode == MOVE && (abs(x)+abs(y) > 0.3) &&
             (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER)
     ) {
         activate_automouse_layer();
