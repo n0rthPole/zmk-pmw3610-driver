@@ -674,6 +674,7 @@ static int pmw3610_report_data(const struct device *dev) {
         y = -y;
     }
 
+/*
 #if AUTOMOUSE_LAYER > 0
     if (input_mode == MOVE && (abs(x)+abs(y) > 0.3) &&
             (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER)
@@ -681,6 +682,7 @@ static int pmw3610_report_data(const struct device *dev) {
         activate_automouse_layer();
     }
 #endif
+/*
     
 #ifdef CONFIG_PMW3610_SMART_ALGORITHM
     int16_t shutter =
