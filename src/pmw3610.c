@@ -542,6 +542,7 @@ static void pmw3610_async_init(struct k_work *work) {
     }
 }
 
+/*
 #define AUTOMOUSE_LAYER (DT_PROP(DT_DRV_INST(0), automouse_layer))
 #if AUTOMOUSE_LAYER > 0
 struct k_timer automouse_layer_timer;
@@ -560,6 +561,7 @@ static void deactivate_automouse_layer(struct k_timer *timer) {
 
 K_TIMER_DEFINE(automouse_layer_timer, deactivate_automouse_layer, NULL);
 #endif
+/*
 
 static enum pixart_input_mode get_input_mode_for_current_layer(const struct device *dev) {
     const struct pixart_config *config = dev->config;
