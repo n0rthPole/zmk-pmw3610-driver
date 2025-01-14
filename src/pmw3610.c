@@ -612,8 +612,18 @@ static int pmw3610_report_data(const struct device *dev) {
 
     data->curr_mode = input_mode;
 
+    int16_t x;
+    int16_t y;
 
-
+#if AUTOMOUSE_LAYER > 0
+    if (input_mode == MOVE &&
+        (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER) &&
+        (abs(x) + abs(y) > CONFIG_PMW3610_MOVEMENT_THRESHOLD)
+) {
+    activate_automouse_layer();
+}
+#endif
+    
     int err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
         return err;
@@ -674,15 +684,8 @@ static int pmw3610_report_data(const struct device *dev) {
         y = -y;
     }
 
-/*
-#if AUTOMOUSE_LAYER > 0
-    if (input_mode == MOVE && (abs(x)+abs(y) > 0.1) &&
-            (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER)
-    ) {
-        activate_automouse_layer();
-    }
-#endif
-*/
+
+
     
 #ifdef CONFIG_PMW3610_SMART_ALGORITHM
     int16_t shutter =
@@ -718,6 +721,15 @@ static int pmw3610_report_data(const struct device *dev) {
 
     if (x != 0 || y != 0) {
         if (input_mode != SCROLL) {
+            #if AUTOMOUSE_LAYER > 0
+            // トラックボールの動きの大きさを計算
+            int16_t movement_size = abs(x) + abs(y);
+            if (input_mode == MOVE &&
+                (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER) &&
+                movement_size > CONFIG_PMW3610_MOVEMENT_THRESHOLD) {
+                activate_automouse_layer();
+            }
+#endif
             input_report_rel(dev, INPUT_REL_X, x, false, K_FOREVER);
             input_report_rel(dev, INPUT_REL_Y, y, true, K_FOREVER);
         } else {
