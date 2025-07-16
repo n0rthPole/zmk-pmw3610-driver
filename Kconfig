@@ -246,6 +246,7 @@ config PMW3610_SCROLL_SNAP_MODE_AXIS_LOCK
       is completely ignored, providing precise axis-aligned scrolling.
 
 endchoice
+
 config PMW3610_ADJUSTABLE_MOUSESPEED
   bool "Enable Adujutable mouse speed"
   default n
