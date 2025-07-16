@@ -15,10 +15,14 @@
 #include <zephyr/input/input.h>
 #include <math.h>
 #include <zmk/keymap.h>
+#include <zmk/behavior.h>
+#include <zmk/behavior_queue.h>
+#include <zmk/events/position_state_changed.h>
 #include "pmw3610.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
+
 
 //////// Sensor initialization steps definition //////////
 // init is done in non-blocking manner (i.e., async), a //
@@ -562,9 +566,11 @@ static void deactivate_automouse_layer(struct k_timer *timer) {
 K_TIMER_DEFINE(automouse_layer_timer, deactivate_automouse_layer, NULL);
 #endif
 
+int ball_action_idx = -1;
 static enum pixart_input_mode get_input_mode_for_current_layer(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     uint8_t curr_layer = zmk_keymap_highest_layer_active();
+    ball_action_idx = -1;
     for (size_t i = 0; i < config->scroll_layers_len; i++) {
         if (curr_layer == config->scroll_layers[i]) {
             return SCROLL;
@@ -573,6 +579,14 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
     for (size_t i = 0; i < config->snipe_layers_len; i++) {
         if (curr_layer == config->snipe_layers[i]) {
             return SNIPE;
+        }
+    }
+    for (size_t i = 0; i < config->ball_actions_len; i++) {
+        for (size_t j = 0; j < config->ball_actions[i]->layers_len; j++) {
+            if (curr_layer == config->ball_actions[i]->layers[j]) {
+                ball_action_idx = i;
+                return BALL_ACTION;
+            }
         }
     }
     return MOVE;
@@ -670,22 +684,30 @@ static int pmw3610_report_data(const struct device *dev) {
         set_cpi_if_needed(dev, CONFIG_PMW3610_SNIPE_CPI);
         dividor = CONFIG_PMW3610_SNIPE_CPI_DIVIDOR;
         break;
+    case BALL_ACTION:
+        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
+        if (input_mode_changed) {
+            data->ball_action_delta_x = 0;
+            data->ball_action_delta_y = 0;
+        }
+        dividor = 1;
+        break;
     default:
         return -ENOTSUP;
     }
 
     data->curr_mode = input_mode;
 
-    int16_t x;
-    int16_t y;
+    int16_t x = 0;
+    int16_t y = 0;
 
 #if AUTOMOUSE_LAYER > 0
     if (input_mode == MOVE &&
-         (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER) &&
-            (abs(x) + abs(y) > CONFIG_PMW3610_MOVEMENT_THRESHOLD)
-) {
-    activate_automouse_layer();
-}
+        (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER) &&
+        (abs(x) + abs(y) > CONFIG_PMW3610_MOVEMENT_THRESHOLD)
+    ) {
+        activate_automouse_layer();
+    }
 #endif
 
     int err = motion_burst_read(dev, buf, sizeof(buf));
@@ -697,31 +719,6 @@ static int pmw3610_report_data(const struct device *dev) {
         TOINT16((buf[PMW3610_X_L_POS] + ((buf[PMW3610_XY_H_POS] & 0xF0) << 4)), 12) / dividor;
     int16_t raw_y =
         TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12) / dividor;
-    
-#ifdef CONFIG_PMW3610_ADJUSTABLE_MOUSESPEED
-    int16_t movement_size = abs(raw_x) + abs(raw_y);
-
-    float speed_multiplier = 1.0; //速度の倍率
-    if (movement_size > 60) {
-        speed_multiplier = 3.0;
-    }else if (movement_size > 30) {
-        speed_multiplier = 1.5;
-    }else if (movement_size > 5) {
-        speed_multiplier = 1.0;
-    }else if (movement_size > 4) {
-        speed_multiplier = 0.9;
-    }else if (movement_size > 3) {
-        speed_multiplier = 0.7;
-    }else if (movement_size > 2) {
-        speed_multiplier = 0.5;
-    }else if (movement_size > 1) {
-        speed_multiplier = 0.1;
-    }
-
-    raw_x = raw_x * speed_multiplier;
-    raw_y = raw_y * speed_multiplier;
-
-#endif
 
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_0)) {
         x = -raw_x;
@@ -754,7 +751,7 @@ static int pmw3610_report_data(const struct device *dev) {
             data->last_remainder_time = 0;
         }
     }
-    
+
 #ifdef CONFIG_PMW3610_SMART_ALGORITHM
     int16_t shutter =
         ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) + buf[PMW3610_SHUTTER_L_POS];
@@ -788,7 +785,7 @@ static int pmw3610_report_data(const struct device *dev) {
 #endif
 
     if (x != 0 || y != 0) {
-        if (input_mode != SCROLL) {
+        if (input_mode == MOVE || input_mode == SNIPE) {
 #if AUTOMOUSE_LAYER > 0
             // トラックボールの動きの大きさを計算
             int16_t movement_size = abs(x) + abs(y);
@@ -949,10 +946,37 @@ static int pmw3610_init(const struct device *dev) {
     return err;
 }
 
+
+#define TRANSFORMED_BINDINGS(n)                                                                    \
+    { LISTIFY(DT_PROP_LEN(n, bindings), ZMK_KEYMAP_EXTRACT_BINDING, (, ), n) }
+
+#define BALL_ACTIONS_INST(n)                                                                       \
+    static struct zmk_behavior_binding                                                             \
+        ball_action_config_##n##_bindings[DT_PROP_LEN(n, bindings)] = TRANSFORMED_BINDINGS(n);     \
+                                                                                                   \
+    static struct ball_action_cfg ball_action_cfg_##n = {                                          \
+        .bindings_len = DT_PROP_LEN(n, bindings),                                                  \
+        .bindings = ball_action_config_##n##_bindings,                                             \
+        .layers = DT_PROP(n, layers),                                                              \
+        .layers_len = DT_PROP_LEN(n, layers),                                                      \
+        .tick = DT_PROP_OR(n, tick, CONFIG_PMW3610_BALL_ACTION_TICK),                              \
+        .wait_ms = DT_PROP_OR(n, wait_ms, 0),                                                      \
+        .tap_ms = DT_PROP_OR(n, tap_ms, 0),                                                        \
+    };
+
+
+DT_INST_FOREACH_CHILD(0, BALL_ACTIONS_INST)
+
+#define BALL_ACTIONS_ITEM(n) &ball_action_cfg_##n,
+#define BALL_ACTIONS_UTIL_ONE(n) 1 +
+
+#define BALL_ACTIONS_LEN (DT_INST_FOREACH_CHILD(0, BALL_ACTIONS_UTIL_ONE) 0)
+
 #define PMW3610_DEFINE(n)                                                                          \
     static struct pixart_data data##n;                                                             \
     static int32_t scroll_layers##n[] = DT_PROP(DT_DRV_INST(n), scroll_layers);                    \
     static int32_t snipe_layers##n[] = DT_PROP(DT_DRV_INST(n), snipe_layers);                      \
+    static struct ball_action_cfg *ball_actions[] = {DT_INST_FOREACH_CHILD(0, BALL_ACTIONS_ITEM)}; \
     static const struct pixart_config config##n = {                                                \
         .irq_gpio = GPIO_DT_SPEC_INST_GET(n, irq_gpios),                                           \
         .bus =                                                                                     \
@@ -971,6 +995,8 @@ static int pmw3610_init(const struct device *dev) {
         .scroll_layers_len = DT_PROP_LEN(DT_DRV_INST(n), scroll_layers),                           \
         .snipe_layers = snipe_layers##n,                                                           \
         .snipe_layers_len = DT_PROP_LEN(DT_DRV_INST(n), snipe_layers),                             \
+        .ball_actions = ball_actions,                                                              \
+        .ball_actions_len = BALL_ACTIONS_LEN,                                                      \
     };                                                                                             \
                                                                                                    \
     DEVICE_DT_INST_DEFINE(n, pmw3610_init, NULL, &data##n, &config##n, POST_KERNEL,                \
