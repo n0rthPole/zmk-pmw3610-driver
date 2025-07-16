@@ -187,6 +187,10 @@ config PMW3610_SCROLL_ACCELERATION_SENSITIVITY
     help
       Scrolling acceleration sensitivity. Higher values make scrolling more responsive with stronger acceleration.
 
+config PMW3610_ADJUSTABLE_MOUSESPEED
+  bool "Enable Adujutable mouse speed"
+  default n
+
 module = PMW3610
 module-str = PMW3610
 source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
