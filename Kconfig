@@ -159,6 +159,10 @@ config PMW3610_AUTOMOUSE_TIMEOUT_MS
   int "Amount of milliseconds the mouse layer will be active after using the trackball"
   default 400
 
+config PMW3610_ADJUSTABLE_MOUSESPEED
+  bool "Enable Adujutable mouse speed"
+  default n
+
 config PMW3610_MOVEMENT_THRESHOLD
     int "Movement threshold for automatic mouse layer activation"
     default 5
@@ -246,10 +250,6 @@ config PMW3610_SCROLL_SNAP_MODE_AXIS_LOCK
       is completely ignored, providing precise axis-aligned scrolling.
 
 endchoice
-
-config PMW3610_ADJUSTABLE_MOUSESPEED
-  bool "Enable Adujutable mouse speed"
-  default n
 
 module = PMW3610
 module-str = PMW3610
