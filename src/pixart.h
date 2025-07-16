@@ -32,6 +32,11 @@ struct pixart_data {
     int16_t last_y;
 #endif
 
+#ifdef CONFIG_PMW3610_SCROLL_ACCELERATION
+    int64_t last_scroll_time;
+#endif
+
+
     // motion interrupt isr
     struct gpio_callback irq_gpio_cb;
     // the work structure holding the trigger job
@@ -48,6 +53,9 @@ struct pixart_data {
 
     // for pmw3610 smart algorithm
     bool sw_smart_flag;
+
+    // for scroll acceleration
+    int64_t last_remainder_time;
 };
 
 // device config data structure
