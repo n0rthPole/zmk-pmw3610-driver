@@ -178,7 +178,7 @@ config PMW3610_SCROLL_ACCELERATION
     depends on PMW3610
     default y
     help
-        Enable scroll acceleration functionality for smoother scrolling experience.
+      Enable scroll acceleration functionality for smoother scrolling experience.
 
 config PMW3610_SCROLL_ACCELERATION_SENSITIVITY
     int "Scroll acceleration sensitivity"
