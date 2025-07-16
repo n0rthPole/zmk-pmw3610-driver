@@ -771,6 +771,16 @@ static int pmw3610_report_data(const struct device *dev) {
         y = -y;
     }
 
+    int64_t current_time = k_uptime_get();
+    if (data->last_remainder_time > 0) {
+        int64_t elapsed = current_time - data->last_remainder_time;
+        if (elapsed > 100) {
+            data->scroll_delta_x = 0;
+            data->scroll_delta_y = 0;
+            data->last_remainder_time = 0;
+        } 
+    }
+    
 #ifdef CONFIG_PMW3610_SMART_ALGORITHM
     int16_t shutter =
         ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) + buf[PMW3610_SHUTTER_L_POS];
