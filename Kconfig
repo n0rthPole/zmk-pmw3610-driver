@@ -225,7 +225,7 @@ config PMW3610_SCROLL_SNAP_DEADTIME_MS
     range 0 2000
     default 400
     help
-            Deadtime in milliseconds after axis lock timeout (0-2000).
+      Deadtime in milliseconds after axis lock timeout (0-2000).
       During this time, scroll input is ignored to prevent unintended axis switching.
 
 choice
