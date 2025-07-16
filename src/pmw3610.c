@@ -597,6 +597,68 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
     return MOVE;
 }
 
+static inline void calculate_scroll_acceleration(int16_t x, int16_t y, struct pixart_data *data,
+                                                int32_t *accel_x, int32_t *accel_y) {
+    *accel_x = x;
+    *accel_y = y;
+
+    #ifdef CONFIG_PMW3610_SCROLL_ACCELERATION
+        int32_t movement = abs(x) + abs(y);
+        int64_t current_time = k_uptime_get();
+        int64_t delta_time = data->last_scroll_time > 0 ? 
+                            current_time - data->last_scroll_time : 0;
+
+        if (delta_time > 0 && delta_time < 100) {
+            float speed = (float)movement / delta_time;
+            float base_sensitivity = (float)CONFIG_PMW3610_SCROLL_ACCELERATION_SENSITIVITY;
+            float acceleration = 1.0f + (base_sensitivity - 1.0f) * (1.0f / (1.0f + expf(-0.2f * (speed - 10.0f))));
+
+            *accel_x = (int32_t)(x * acceleration);
+            *accel_y = (int32_t)(y * acceleration);
+
+            if (abs(x) <= 1) *accel_x = x;
+            if (abs(y) <= 1) *accel_y = y;
+        }
+
+        data->last_scroll_time = current_time;
+    #endif
+}
+
+static inline void process_scroll_events(const struct device *dev, struct pixart_data *data,
+                                        int32_t delta, bool is_horizontal) {
+    if (abs(delta) > CONFIG_PMW3610_SCROLL_TICK) {
+        int event_count = abs(delta) / CONFIG_PMW3610_SCROLL_TICK;
+        const int MAX_EVENTS = 20;
+        int32_t *target_delta = is_horizontal ? &data->scroll_delta_x : &data->scroll_delta_y;
+
+        if (event_count > MAX_EVENTS) {
+            event_count = MAX_EVENTS;
+            *target_delta = (delta > 0) ? 
+                delta - (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK) :
+                delta + (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK);
+            data->last_remainder_time = k_uptime_get();
+        } else {
+            *target_delta = delta % CONFIG_PMW3610_SCROLL_TICK;
+        }
+
+        for (int i = 0; i < event_count; i++) {
+            input_report_rel(dev,
+                            is_horizontal ? INPUT_REL_HWHEEL : INPUT_REL_WHEEL,
+                            delta > 0 ? 
+                                (is_horizontal ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_Y_NEGATIVE) :
+                                (is_horizontal ? PMW3610_SCROLL_X_POSITIVE : PMW3610_SCROLL_Y_POSITIVE),
+                            (i == event_count - 1),
+                            K_MSEC(10));
+        }
+
+        if (is_horizontal) {
+            data->scroll_delta_y = 0;
+        } else {
+            data->scroll_delta_x = 0;
+        }
+    }
+}
+
 static int pmw3610_report_data(const struct device *dev) {
     struct pixart_data *data = dev->data;
     uint8_t buf[PMW3610_BURST_SIZE];
