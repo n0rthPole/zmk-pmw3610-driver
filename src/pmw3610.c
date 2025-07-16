@@ -13,21 +13,11 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/input/input.h>
-#include <zephyr/device.h>
-#include <zephyr/sys/dlist.h>
-#include <drivers/behavior.h>
 #include <zmk/keymap.h>
-#include <zmk/behavior.h>
-#include <zmk/keys.h>
-#include <zmk/behavior_queue.h>
-#include <zmk/event_manager.h>
-#include <zmk/events/position_state_changed.h>
-#include <zmk/events/layer_state_changed.h>
 #include "pmw3610.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(pmw3610, CONFIG_INPUT_LOG_LEVEL);
-
 
 //////// Sensor initialization steps definition //////////
 // init is done in non-blocking manner (i.e., async), a //
@@ -571,11 +561,9 @@ static void deactivate_automouse_layer(struct k_timer *timer) {
 K_TIMER_DEFINE(automouse_layer_timer, deactivate_automouse_layer, NULL);
 #endif
 
-int ball_action_idx = -1;
 static enum pixart_input_mode get_input_mode_for_current_layer(const struct device *dev) {
     const struct pixart_config *config = dev->config;
     uint8_t curr_layer = zmk_keymap_highest_layer_active();
-    ball_action_idx = -1;
     for (size_t i = 0; i < config->scroll_layers_len; i++) {
         if (curr_layer == config->scroll_layers[i]) {
             return SCROLL;
@@ -586,77 +574,7 @@ static enum pixart_input_mode get_input_mode_for_current_layer(const struct devi
             return SNIPE;
         }
     }
-    for (size_t i = 0; i < config->ball_actions_len; i++) {
-        for (size_t j = 0; j < config->ball_actions[i]->layers_len; j++) {
-            if (curr_layer == config->ball_actions[i]->layers[j]) {
-                ball_action_idx = i;
-                return BALL_ACTION;
-            }
-        }
-    }
     return MOVE;
-}
-
-static inline void calculate_scroll_acceleration(int16_t x, int16_t y, struct pixart_data *data,
-                                                int32_t *accel_x, int32_t *accel_y) {
-    *accel_x = x;
-    *accel_y = y;
-
-    #ifdef CONFIG_PMW3610_SCROLL_ACCELERATION
-        int32_t movement = abs(x) + abs(y);
-        int64_t current_time = k_uptime_get();
-        int64_t delta_time = data->last_scroll_time > 0 ? 
-                            current_time - data->last_scroll_time : 0;
-
-        if (delta_time > 0 && delta_time < 100) {
-            float speed = (float)movement / delta_time;
-            float base_sensitivity = (float)CONFIG_PMW3610_SCROLL_ACCELERATION_SENSITIVITY;
-            float acceleration = 1.0f + (base_sensitivity - 1.0f) * (1.0f / (1.0f + expf(-0.2f * (speed - 10.0f))));
-
-            *accel_x = (int32_t)(x * acceleration);
-            *accel_y = (int32_t)(y * acceleration);
-
-            if (abs(x) <= 1) *accel_x = x;
-            if (abs(y) <= 1) *accel_y = y;
-        }
-
-        data->last_scroll_time = current_time;
-    #endif
-}
-
-static inline void process_scroll_events(const struct device *dev, struct pixart_data *data,
-                                        int32_t delta, bool is_horizontal) {
-    if (abs(delta) > CONFIG_PMW3610_SCROLL_TICK) {
-        int event_count = abs(delta) / CONFIG_PMW3610_SCROLL_TICK;
-        const int MAX_EVENTS = 20;
-        int32_t *target_delta = is_horizontal ? &data->scroll_delta_x : &data->scroll_delta_y;
-
-        if (event_count > MAX_EVENTS) {
-            event_count = MAX_EVENTS;
-            *target_delta = (delta > 0) ? 
-                delta - (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK) :
-                delta + (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK);
-            data->last_remainder_time = k_uptime_get();
-        } else {
-            *target_delta = delta % CONFIG_PMW3610_SCROLL_TICK;
-        }
-
-        for (int i = 0; i < event_count; i++) {
-            input_report_rel(dev,
-                            is_horizontal ? INPUT_REL_HWHEEL : INPUT_REL_WHEEL,
-                            delta > 0 ? 
-                                (is_horizontal ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_Y_NEGATIVE) :
-                                (is_horizontal ? PMW3610_SCROLL_X_POSITIVE : PMW3610_SCROLL_Y_POSITIVE),
-                            (i == event_count - 1),
-                            K_MSEC(10));
-        }
-
-        if (is_horizontal) {
-            data->scroll_delta_y = 0;
-        } else {
-            data->scroll_delta_x = 0;
-        }
-    }
 }
 
 static int pmw3610_report_data(const struct device *dev) {
@@ -688,31 +606,12 @@ static int pmw3610_report_data(const struct device *dev) {
         set_cpi_if_needed(dev, CONFIG_PMW3610_SNIPE_CPI);
         dividor = CONFIG_PMW3610_SNIPE_CPI_DIVIDOR;
         break;
-    case BALL_ACTION:
-        set_cpi_if_needed(dev, CONFIG_PMW3610_CPI);
-        if (input_mode_changed) {
-            data->ball_action_delta_x = 0;
-            data->ball_action_delta_y = 0;
-        }
-        dividor = 1;
-        break;
     default:
         return -ENOTSUP;
     }
 
     data->curr_mode = input_mode;
 
-    int16_t x = 0;
-    int16_t y = 0;
-
-#if AUTOMOUSE_LAYER > 0
-    if (input_mode == MOVE &&
-        (automouse_triggered || zmk_keymap_highest_layer_active() != AUTOMOUSE_LAYER) &&
-        (abs(x) + abs(y) > CONFIG_PMW3610_MOVEMENT_THRESHOLD)
-    ) {
-        activate_automouse_layer();
-    }
-#endif
 
     int err = motion_burst_read(dev, buf, sizeof(buf));
     if (err) {
@@ -724,6 +623,8 @@ static int pmw3610_report_data(const struct device *dev) {
     int16_t raw_y =
         TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12) / dividor;
 
+        int16_t x, y;
+    
 #ifdef CONFIG_PMW3610_ADJUSTABLE_MOUSESPEED
     int16_t movement_size = abs(raw_x) + abs(raw_y);
 
@@ -749,6 +650,8 @@ static int pmw3610_report_data(const struct device *dev) {
 
 #endif
 
+
+
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_0)) {
         x = -raw_x;
         y = raw_y;
@@ -771,9 +674,11 @@ static int pmw3610_report_data(const struct device *dev) {
         y = -y;
     }
 
+    // 残り値の減衰処理
     int64_t current_time = k_uptime_get();
     if (data->last_remainder_time > 0) {
         int64_t elapsed = current_time - data->last_remainder_time;
+        // 100ms経過で残り値をリセット
         if (elapsed > 100) {
             data->scroll_delta_x = 0;
             data->scroll_delta_y = 0;
@@ -814,7 +719,7 @@ static int pmw3610_report_data(const struct device *dev) {
 #endif
 
     if (x != 0 || y != 0) {
-        if (input_mode == MOVE || input_mode == SNIPE) {
+        if (input_mode != SCROLL) {
 #if AUTOMOUSE_LAYER > 0
             // トラックボールの動きの大きさを計算
             int16_t movement_size = abs(x) + abs(y);
@@ -826,50 +731,98 @@ static int pmw3610_report_data(const struct device *dev) {
 #endif
             input_report_rel(dev, INPUT_REL_X, x, false, K_FOREVER);
             input_report_rel(dev, INPUT_REL_Y, y, true, K_FOREVER);
-        } else if (input_mode == SCROLL) {
-            int32_t accel_x, accel_y;
-            calculate_scroll_acceleration(x, y, data, &accel_x, &accel_y);
+        } else {
+            int32_t movement = abs(x) + abs(y);
+            int32_t accel_x = x;
+            int32_t accel_y = y;
+            
+            #ifdef CONFIG_PMW3610_SCROLL_ACCELERATION
+                int64_t current_time = k_uptime_get();
+                int64_t delta_time = data->last_scroll_time > 0 ? 
+                                    current_time - data->last_scroll_time : 0;
+                
+                // 速度を計算（有効な時間差がある場合のみ）
+                if (delta_time > 0 && delta_time < 100) {  // 100ms以上経過したら速度計算をリセット
+                    float speed = (float)movement / delta_time;
+                    
+                    // より積極的なシグモイド関数を使用した加速曲線
+                    float base_sensitivity = (float)CONFIG_PMW3610_SCROLL_SENSITIVITY / 2.5f;
+                    
+                    // より大きな加速効果（最大10倍まで）
+                    float acceleration = 1.0f + 9.0f * (1.0f / (1.0f + expf(-0.5f * (speed - 8.0f))));
+                    
+                    // 感度設定を反映
+                    acceleration *= base_sensitivity;
+                    
+                    // 加速係数を適用
+                    accel_x = (int32_t)(x * acceleration);
+                    accel_y = (int32_t)(y * acceleration);
+                    
+                    // 小さな動きは維持するが、大きな動きは加速する
+                    if (abs(x) <= 1) accel_x = x;
+                    if (abs(y) <= 1) accel_y = y;
+                }
+                
+                // 時間と移動量を記録
+                data->last_scroll_time = current_time;
+            #endif
 
             data->scroll_delta_x += accel_x;
             data->scroll_delta_y += accel_y;
-
-            process_scroll_events(dev, data, data->scroll_delta_y, false);
-            process_scroll_events(dev, data, data->scroll_delta_x, true);
-        } else if (input_mode == BALL_ACTION) {
-            data->ball_action_delta_x += x;
-            data->ball_action_delta_y += y;
-
-            const struct pixart_config *config = dev->config;
-
-            if(ball_action_idx != -1) {
-                const struct ball_action_cfg action_cfg = *config->ball_actions[ball_action_idx];
-
-                LOG_DBG("invoking ball action [%d], layer=%d", ball_action_idx, zmk_keymap_highest_layer_active());
-
-                struct zmk_behavior_binding_event event = {
-                    .position = INT32_MAX,
-                    .timestamp = k_uptime_get(),
-#if IS_ENABLED(CONFIG_ZMK_SPLIT)
-                    .source = ZMK_POSITION_STATE_CHANGE_SOURCE_LOCAL,
-#endif
-
-                };
-
-                // determine which binding to invoke
-                int idx = -1;
-                if(abs(data->ball_action_delta_x) > action_cfg.tick) {
-                    idx = data->ball_action_delta_x > 0 ? 0 : 1;
-                } else if(abs(data->ball_action_delta_y) > action_cfg.tick) {
-                    idx = data->ball_action_delta_y > 0 ? 3 : 2;
+            
+            if (abs(data->scroll_delta_y) > CONFIG_PMW3610_SCROLL_TICK) {
+                // イベント数制限
+                int event_count = abs(data->scroll_delta_y) / CONFIG_PMW3610_SCROLL_TICK;
+                const int MAX_EVENTS = 10;
+                if (event_count > MAX_EVENTS) {
+                    event_count = MAX_EVENTS;
+                    // 制限された残りの値を保持
+                    if (data->scroll_delta_y > 0) {
+                        data->scroll_delta_y -= (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK);
+                    } else {
+                        data->scroll_delta_y += (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK);
+                    }
+                    // 残り値の時間を記録
+                    data->last_remainder_time = k_uptime_get();
+                } else {
+                    // 通常通り余りを計算
+                    data->scroll_delta_y = data->scroll_delta_y % CONFIG_PMW3610_SCROLL_TICK;
                 }
-
-                if(idx != -1) {
-                    zmk_behavior_queue_add(&event, action_cfg.bindings[idx], true, action_cfg.tap_ms);
-                    zmk_behavior_queue_add(&event, action_cfg.bindings[idx], false, action_cfg.wait_ms);
-
-                    data->ball_action_delta_x = 0;
-                    data->ball_action_delta_y = 0;
+                
+                for (int i = 0; i < event_count; i++) {
+                    input_report_rel(dev, INPUT_REL_WHEEL,
+                                data->scroll_delta_y > 0 ? PMW3610_SCROLL_Y_NEGATIVE : PMW3610_SCROLL_Y_POSITIVE,
+                                (i == event_count - 1),
+                                K_MSEC(10));
                 }
+                data->scroll_delta_x = 0;
+
+            } else if (abs(data->scroll_delta_x) > CONFIG_PMW3610_SCROLL_TICK) {
+                                // イベント数制限
+                int event_count = abs(data->scroll_delta_x) / CONFIG_PMW3610_SCROLL_TICK;
+                const int MAX_EVENTS = 10;
+                if (event_count > MAX_EVENTS) {
+                    event_count = MAX_EVENTS;
+                    // 制限された残りの値を保持
+                    if (data->scroll_delta_x > 0) {
+                        data->scroll_delta_x -= (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK);
+                    } else {
+                        data->scroll_delta_x += (MAX_EVENTS * CONFIG_PMW3610_SCROLL_TICK);
+                    }
+                    // 残り値の時間を記録
+                    data->last_remainder_time = k_uptime_get();
+                } else {
+                    // 通常通り余りを計算
+                    data->scroll_delta_x = data->scroll_delta_x % CONFIG_PMW3610_SCROLL_TICK;
+                }
+                
+                for (int i = 0; i < event_count; i++) {
+                    input_report_rel(dev, INPUT_REL_HWHEEL,
+                                data->scroll_delta_x > 0 ? PMW3610_SCROLL_X_NEGATIVE : PMW3610_SCROLL_X_POSITIVE,
+                                (i == event_count - 1),
+                                K_MSEC(10));
+                }
+                data->scroll_delta_y = 0;
             }
         }
     }
@@ -975,37 +928,10 @@ static int pmw3610_init(const struct device *dev) {
     return err;
 }
 
-
-#define TRANSFORMED_BINDINGS(n)                                                                    \
-    { LISTIFY(DT_PROP_LEN(n, bindings), ZMK_KEYMAP_EXTRACT_BINDING, (, ), n) }
-
-#define BALL_ACTIONS_INST(n)                                                                       \
-    static struct zmk_behavior_binding                                                             \
-        ball_action_config_##n##_bindings[DT_PROP_LEN(n, bindings)] = TRANSFORMED_BINDINGS(n);     \
-                                                                                                   \
-    static struct ball_action_cfg ball_action_cfg_##n = {                                          \
-        .bindings_len = DT_PROP_LEN(n, bindings),                                                  \
-        .bindings = ball_action_config_##n##_bindings,                                             \
-        .layers = DT_PROP(n, layers),                                                              \
-        .layers_len = DT_PROP_LEN(n, layers),                                                      \
-        .tick = DT_PROP_OR(n, tick, CONFIG_PMW3610_BALL_ACTION_TICK),                              \
-        .wait_ms = DT_PROP_OR(n, wait_ms, 0),                                                      \
-        .tap_ms = DT_PROP_OR(n, tap_ms, 0),                                                        \
-    };
-
-
-DT_INST_FOREACH_CHILD(0, BALL_ACTIONS_INST)
-
-#define BALL_ACTIONS_ITEM(n) &ball_action_cfg_##n,
-#define BALL_ACTIONS_UTIL_ONE(n) 1 +
-
-#define BALL_ACTIONS_LEN (DT_INST_FOREACH_CHILD(0, BALL_ACTIONS_UTIL_ONE) 0)
-
 #define PMW3610_DEFINE(n)                                                                          \
     static struct pixart_data data##n;                                                             \
     static int32_t scroll_layers##n[] = DT_PROP(DT_DRV_INST(n), scroll_layers);                    \
     static int32_t snipe_layers##n[] = DT_PROP(DT_DRV_INST(n), snipe_layers);                      \
-    static struct ball_action_cfg *ball_actions[] = {DT_INST_FOREACH_CHILD(0, BALL_ACTIONS_ITEM)}; \
     static const struct pixart_config config##n = {                                                \
         .irq_gpio = GPIO_DT_SPEC_INST_GET(n, irq_gpios),                                           \
         .bus =                                                                                     \
@@ -1024,8 +950,6 @@ DT_INST_FOREACH_CHILD(0, BALL_ACTIONS_INST)
         .scroll_layers_len = DT_PROP_LEN(DT_DRV_INST(n), scroll_layers),                           \
         .snipe_layers = snipe_layers##n,                                                           \
         .snipe_layers_len = DT_PROP_LEN(DT_DRV_INST(n), snipe_layers),                             \
-        .ball_actions = ball_actions,                                                              \
-        .ball_actions_len = BALL_ACTIONS_LEN,                                                      \
     };                                                                                             \
                                                                                                    \
     DEVICE_DT_INST_DEFINE(n, pmw3610_init, NULL, &data##n, &config##n, POST_KERNEL,                \
