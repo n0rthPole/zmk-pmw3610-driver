@@ -809,7 +809,7 @@ static int pmw3610_report_data(const struct device *dev) {
 
             process_scroll_events(dev, data, data->scroll_delta_y, false);
             process_scroll_events(dev, data, data->scroll_delta_x, true);
-            }
+            
         }
     }
 
