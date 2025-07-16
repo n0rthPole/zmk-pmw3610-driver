@@ -726,6 +726,31 @@ static int pmw3610_report_data(const struct device *dev) {
     int16_t raw_y =
         TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12) / dividor;
 
+#ifdef CONFIG_PMW3610_ADJUSTABLE_MOUSESPEED
+    int16_t movement_size = abs(raw_x) + abs(raw_y);
+
+    float speed_multiplier = 1.0; //速度の倍率
+    if (movement_size > 60) {
+        speed_multiplier = 3.0;
+    }else if (movement_size > 30) {
+        speed_multiplier = 1.5;
+    }else if (movement_size > 5) {
+        speed_multiplier = 1.0;
+    }else if (movement_size > 4) {
+        speed_multiplier = 0.9;
+    }else if (movement_size > 3) {
+        speed_multiplier = 0.7;
+    }else if (movement_size > 2) {
+        speed_multiplier = 0.5;
+    }else if (movement_size > 1) {
+        speed_multiplier = 0.1;
+    }
+
+    raw_x = raw_x * speed_multiplier;
+    raw_y = raw_y * speed_multiplier;
+
+#endif
+
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_0)) {
         x = -raw_x;
         y = raw_y;
