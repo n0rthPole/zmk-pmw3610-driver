@@ -26,15 +26,18 @@ struct pixart_data {
     int32_t scroll_delta_x;
     int32_t scroll_delta_y;
 
-#ifdef CONFIG_PMW3610_SCROLL_ACCELERATION
-    int64_t last_scroll_time;
-#endif
 
 #ifdef CONFIG_PMW3610_POLLING_RATE_125_SW
     int64_t last_poll_time;
     int16_t last_x;
     int16_t last_y;
 #endif
+
+
+#ifdef CONFIG_PMW3610_SCROLL_ACCELERATION
+    int64_t last_scroll_time;
+#endif
+
 
     // motion interrupt isr
     struct gpio_callback irq_gpio_cb;
