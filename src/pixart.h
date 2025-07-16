@@ -53,6 +53,7 @@ struct pixart_data {
     // for pmw3610 smart algorithm
     bool sw_smart_flag;
 
+    // for scroll acceleration
     int64_t last_remainder_time;
 
 };
