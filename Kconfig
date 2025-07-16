@@ -175,18 +175,77 @@ config PMW3610_BALL_ACTION_TICK
 
 config PMW3610_SCROLL_ACCELERATION
     bool "Enable scroll acceleration"
-    default n
+    depends on PMW3610
+    default y
     help
-      Enable acceleration for scrolling based on movement speed.
+        Enable scroll acceleration functionality for smoother scrolling experience.
 
 config PMW3610_SCROLL_ACCELERATION_SENSITIVITY
-    int "Scroll acceleration sensitivity (1-10)"
-    default 3
-    range 1 10
+    int "Scroll acceleration sensitivity"
     depends on PMW3610_SCROLL_ACCELERATION
+    range 1 10
+    default 5
     help
-      Scrolling acceleration sensitivity. Higher values make scrolling more responsive with stronger acceleration.
+      Scroll acceleration sensitivity (1-10). Higher values make acceleration more responsive.
 
+config PMW3610_SCROLL_SNAP
+    bool "Enable scroll snap to axis"
+    depends on PMW3610
+    default y
+    help
+      Enable scroll snap functionality to lock scrolling to primary axis.
+
+config PMW3610_SCROLL_SNAP_THRESHOLD
+    int "Scroll snap threshold"
+    depends on PMW3610_SCROLL_SNAP
+    range 1 10000
+    default 30
+    help
+      Scroll snap threshold (1-100). Lower values make snapping more aggressive.
+
+config PMW3610_SCROLL_SNAP_STRENGTH
+    int "Scroll snap strength"
+    depends on PMW3610_SCROLL_SNAP
+    range 1 100
+    default 70
+    help
+      Scroll snap strength (1-100). Higher values create stronger snapping.
+
+config PMW3610_SCROLL_SNAP_AXIS_LOCK_TIMEOUT_MS
+    int "Axis lock timeout (ms)"
+    depends on PMW3610_SCROLL_SNAP_MODE_AXIS_LOCK
+    range 100 5000
+    default 1000
+    help
+      Axis lock timeout in milliseconds (100-5000).
+
+config PMW3610_SCROLL_SNAP_DEADTIME_MS
+    int "Scroll snap deadtime (ms)"
+    depends on PMW3610_SCROLL_SNAP_MODE_AXIS_LOCK
+    range 0 2000
+    default 400
+    help
+            Deadtime in milliseconds after axis lock timeout (0-2000).
+      During this time, scroll input is ignored to prevent unintended axis switching.
+
+choice
+    prompt "Scroll snap mode"
+    default PMW3610_SCROLL_SNAP_MODE_ATTENUATION
+    depends on PMW3610_SCROLL_SNAP
+
+config PMW3610_SCROLL_SNAP_MODE_ATTENUATION
+    bool "Attenuation mode"
+    help
+      Attenuate the non-dominant axis movement. This provides smooth transition
+      between axes while reducing diagonal movement.
+
+config PMW3610_SCROLL_SNAP_MODE_AXIS_LOCK
+    bool "Axis lock mode"
+    help
+      Lock scrolling to the dominant axis only. The non-dominant axis movement
+      is completely ignored, providing precise axis-aligned scrolling.
+
+endchoice
 config PMW3610_ADJUSTABLE_MOUSESPEED
   bool "Enable Adujutable mouse speed"
   default n
