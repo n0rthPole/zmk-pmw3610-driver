@@ -167,11 +167,23 @@ config PMW3610_MOVEMENT_THRESHOLD
         A higher value means more movement is required to activate the mouse layer.
         This helps prevent accidental activation during typing.
 
-config PMW3610_BALL_ACTION_TICK
-    int "PMW3610's required ticks to trigger a ball action"
-    default 20
+config PMW3610_SCROLL_ACCELERATION
+    bool "Enable scroll acceleration"
+    default y
     help
-        Ball action tick value. Higher values require more movement to trigger a ball action.
+      Enable acceleration for scrolling based on movement speed.
+
+config PMW3610_SCROLL_SENSITIVITY
+    int "Scroll sensitivity (1-10)"
+    default 2
+    range 1 10
+    depends on PMW3610_SCROLL_ACCELERATION
+    help
+      Scrolling sensitivity. Higher values make scrolling more responsive with stronger acceleration.
+
+config PMW3610_ADJUSTABLE_MOUSESPEED
+  bool "Enable Adujutable mouse speed"
+  default n
 
 module = PMW3610
 module-str = PMW3610
