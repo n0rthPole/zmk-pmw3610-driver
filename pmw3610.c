@@ -602,25 +602,25 @@ static inline void calculate_scroll_acceleration(int16_t x, int16_t y, struct pi
                                                 int32_t *accel_x, int32_t *accel_y) {
     *accel_x = x;
     *accel_y = y;
-    
+
     #ifdef CONFIG_PMW3610_SCROLL_ACCELERATION
         int32_t movement = abs(x) + abs(y);
         int64_t current_time = k_uptime_get();
         int64_t delta_time = data->last_scroll_time > 0 ? 
                             current_time - data->last_scroll_time : 0;
-        
+
         if (delta_time > 0 && delta_time < 100) {
             float speed = (float)movement / delta_time;
             float base_sensitivity = (float)CONFIG_PMW3610_SCROLL_ACCELERATION_SENSITIVITY;
             float acceleration = 1.0f + (base_sensitivity - 1.0f) * (1.0f / (1.0f + expf(-0.2f * (speed - 10.0f))));
-            
+
             *accel_x = (int32_t)(x * acceleration);
             *accel_y = (int32_t)(y * acceleration);
-            
+
             if (abs(x) <= 1) *accel_x = x;
             if (abs(y) <= 1) *accel_y = y;
         }
-        
+
         data->last_scroll_time = current_time;
     #endif
 }
@@ -632,12 +632,12 @@ static inline void calculate_scroll_snap(int32_t *x, int32_t *y, struct pixart_d
     }
 
     int64_t current_time = k_uptime_get();
-    
+
     // 動きがあった場合は時間を更新
     if (*x != 0 || *y != 0) {
         data->scroll_snap_last_time = current_time;
     }
-    
+
 #ifdef CONFIG_PMW3610_SCROLL_SNAP_MODE_AXIS_LOCK
     // デッドタイムのチェック
     if (data->scroll_snap_in_deadtime) {
@@ -652,7 +652,7 @@ static inline void calculate_scroll_snap(int32_t *x, int32_t *y, struct pixart_d
             data->scroll_snap_in_deadtime = false;
         }
     }
-    
+
     // 軸固定モード：蓄積ベースのアプローチ
     if (abs(*y) > abs(*x)) {
         // Y軸が主軸の場合
@@ -671,7 +671,7 @@ static inline void calculate_scroll_snap(int32_t *x, int32_t *y, struct pixart_d
             data->scroll_snap_accumulated_y = 0;  // 閾値を超えたらリセット
         }
     }
-    
+
     // 動きが止まった場合のリセットとデッドタイム開始
     if (data->scroll_snap_last_time > 0) {
         int64_t elapsed = current_time - data->scroll_snap_last_time;
@@ -679,7 +679,7 @@ static inline void calculate_scroll_snap(int32_t *x, int32_t *y, struct pixart_d
             data->scroll_snap_accumulated_x = 0;
             data->scroll_snap_accumulated_y = 0;
             data->scroll_snap_last_time = 0;
-            
+
             // デッドタイム開始
             data->scroll_snap_in_deadtime = true;
             data->scroll_snap_deadtime_start = current_time;
@@ -702,7 +702,7 @@ static inline void calculate_scroll_snap(int32_t *x, int32_t *y, struct pixart_d
             float ratio = (float)abs_x / abs_y;
             float threshold = (float)CONFIG_PMW3610_SCROLL_SNAP_THRESHOLD / 100.0f;
             float strength = (float)CONFIG_PMW3610_SCROLL_SNAP_STRENGTH / 100.0f;
-            
+
             if (ratio < threshold) {
                 // スナップ効果を適用
                 float snap_factor = 1.0f - (strength * (1.0f - ratio / threshold));
@@ -715,7 +715,7 @@ static inline void calculate_scroll_snap(int32_t *x, int32_t *y, struct pixart_d
             float ratio = (float)abs_y / abs_x;
             float threshold = (float)CONFIG_PMW3610_SCROLL_SNAP_THRESHOLD / 100.0f;
             float strength = (float)CONFIG_PMW3610_SCROLL_SNAP_STRENGTH / 100.0f;
-            
+
             if (ratio < threshold) {
                 // スナップ効果を適用
                 float snap_factor = 1.0f - (strength * (1.0f - ratio / threshold));
@@ -737,7 +737,7 @@ static inline void process_scroll_events(const struct device *dev, struct pixart
         int event_count = abs(delta) / CONFIG_PMW3610_SCROLL_TICK;
         const int MAX_EVENTS = 20;
         int32_t *target_delta = is_horizontal ? &data->scroll_delta_x : &data->scroll_delta_y;
-        
+
         if (event_count > MAX_EVENTS) {
             event_count = MAX_EVENTS;
             *target_delta = (delta > 0) ? 
@@ -747,7 +747,7 @@ static inline void process_scroll_events(const struct device *dev, struct pixart
         } else {
             *target_delta = delta % CONFIG_PMW3610_SCROLL_TICK;
         }
-        
+
         for (int i = 0; i < event_count; i++) {
             input_report_rel(dev,
                             is_horizontal ? INPUT_REL_HWHEEL : INPUT_REL_WHEEL,
@@ -757,10 +757,11 @@ static inline void process_scroll_events(const struct device *dev, struct pixart
                             (i == event_count - 1),
                             K_MSEC(10));
         }
-        
+
         // 軸固定モードでは、この処理をスキップする
         // 軸固定モードでは既にcalculate_scroll_snapで非主軸の動きをゼロにしているため
 #ifndef CONFIG_PMW3610_SCROLL_SNAP_MODE_AXIS_LOCK
+        
         if (is_horizontal) {
             data->scroll_delta_y = 0;
         } else {
@@ -799,7 +800,7 @@ static int pmw3610_report_data(const struct device *dev) {
             data->scroll_snap_last_time = 0;
             data->scroll_snap_deadtime_start = 0;
             data->scroll_snap_in_deadtime = false;
-#endif
+#endif            
         }
         dividor = 1;
         break;
@@ -843,32 +844,30 @@ static int pmw3610_report_data(const struct device *dev) {
     int16_t raw_y =
         TOINT16((buf[PMW3610_Y_L_POS] + ((buf[PMW3610_XY_H_POS] & 0x0F) << 8)), 12) / dividor;
 
-    // マウスカーソルn加の設定
-    #ifdef CONFIG_PMW3610_ADJUSTABLE_MOUSESPEED
-        int16_t movement_size = abs(raw_x) + abs(raw_y);
+#ifdef CONFIG_PMW3610_ADJUSTABLE_MOUSESPEED
+    int16_t movement_size = abs(raw_x) + abs(raw_y);
 
-        float speed_multiplier = 1.0; //速度の倍率
-        if (movement_size > 60) {
-            speed_multiplier = 3.0;
-        }else if (movement_size > 30) {
-            speed_multiplier = 1.5;
-        }else if (movement_size > 5) {
-            speed_multiplier = 1.0;
-        }else if (movement_size > 4) {
-            speed_multiplier = 0.9;
-        }else if (movement_size > 3) {
-            speed_multiplier = 0.7;
-        }else if (movement_size > 2) {
-            speed_multiplier = 0.5;
-        }else if (movement_size > 1) {
-            speed_multiplier = 0.1;
-        }
+    float speed_multiplier = 1.0; //速度の倍率
+    if (movement_size > 60) {
+        speed_multiplier = 3.0;
+    }else if (movement_size > 30) {
+        speed_multiplier = 1.5;
+    }else if (movement_size > 5) {
+        speed_multiplier = 1.0;
+    }else if (movement_size > 4) {
+        speed_multiplier = 0.9;
+    }else if (movement_size > 3) {
+        speed_multiplier = 0.7;
+    }else if (movement_size > 2) {
+        speed_multiplier = 0.5;
+    }else if (movement_size > 1) {
+        speed_multiplier = 0.1;
+    }
 
-        raw_x = raw_x * speed_multiplier;
-        raw_y = raw_y * speed_multiplier;
+    raw_x = raw_x * speed_multiplier;
+    raw_y = raw_y * speed_multiplier;
 
-    #endif
-
+#endif
 
     if (IS_ENABLED(CONFIG_PMW3610_ORIENTATION_0)) {
         x = -raw_x;
@@ -892,7 +891,7 @@ static int pmw3610_report_data(const struct device *dev) {
         y = -y;
     }
 
-    int64_t current_time = k_uptime_get();
+ int64_t current_time = k_uptime_get();
     if (data->last_remainder_time > 0) {
         int64_t elapsed = current_time - data->last_remainder_time;
         if (elapsed > 100) {
@@ -901,7 +900,7 @@ static int pmw3610_report_data(const struct device *dev) {
             data->last_remainder_time = 0;
         } 
     }
-
+    
 #ifdef CONFIG_PMW3610_SMART_ALGORITHM
     int16_t shutter =
         ((int16_t)(buf[PMW3610_SHUTTER_H_POS] & 0x01) << 8) + buf[PMW3610_SHUTTER_L_POS];
@@ -951,14 +950,14 @@ static int pmw3610_report_data(const struct device *dev) {
             // まずスクロールスナップ処理を適用
             int32_t snap_x = x, snap_y = y;
             calculate_scroll_snap(&snap_x, &snap_y, data);
-            
+
             // 次にスクロール加速処理を適用
             int32_t accel_x, accel_y;
             calculate_scroll_acceleration(snap_x, snap_y, data, &accel_x, &accel_y);
-            
+
             data->scroll_delta_x += accel_x;
             data->scroll_delta_y += accel_y;
-            
+
             process_scroll_events(dev, data, data->scroll_delta_y, false);
             process_scroll_events(dev, data, data->scroll_delta_x, true);
         } else if (input_mode == BALL_ACTION) {
@@ -1074,7 +1073,7 @@ static int pmw3610_init(const struct device *dev) {
     data->scroll_snap_deadtime_start = 0;
     data->scroll_snap_in_deadtime = false;
 #endif
-
+    
     // init trigger handler work
     k_work_init(&data->trigger_work, pmw3610_work_callback);
 

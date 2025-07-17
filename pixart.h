@@ -65,6 +65,7 @@ struct pixart_data {
 
     // for scroll acceleration
     int64_t last_remainder_time;
+
 };
 
 // ball action config data structure
