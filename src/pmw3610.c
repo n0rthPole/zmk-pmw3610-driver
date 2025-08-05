@@ -727,7 +727,7 @@ static inline void calculate_scroll_snap(int32_t *x, int32_t *y, struct pixart_d
     // 処理済みの値を返す
     *x = data->scroll_snap_accumulated_x;
     *y = data->scroll_snap_accumulated_y;
-
+#endif
 #endif
 }
 
